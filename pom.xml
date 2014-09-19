@@ -145,6 +145,7 @@
 		<module>marytts-transcription</module>
 		<module>marytts-lang-de</module>
 		<module>marytts-lang-en</module>
+		<module>marytts-lang-es</module>
 		<module>marytts-lang-te</module>
 		<module>marytts-lang-tr</module>
 		<module>marytts-lang-ru</module>
