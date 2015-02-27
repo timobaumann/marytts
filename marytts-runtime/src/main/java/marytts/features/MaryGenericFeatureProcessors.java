@@ -1,4 +1,5 @@
 /**
+ * Portions Copyright 2015 Arne Köhn.
  * Portions Copyright 2006-2007 DFKI GmbH.
  * Portions Copyright 2001 Sun Microsystems, Inc.
  * Portions Copyright 1999-2001 Language Technologies Institute, 
@@ -34,7 +35,10 @@ package marytts.features;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
 
@@ -48,6 +52,8 @@ import marytts.util.string.ByteStringTranslator;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.traversal.TreeWalker;
+
+import de.unihamburg.informatik.nats.jwcdg.predictors.TurboWrapper;
 
 /**
  * A collection of feature processors that operate on Target objects.
@@ -2073,6 +2079,343 @@ public class MaryGenericFeatureProcessors {
 		}
 	}
 
+	public static class TurboParser {
+		private static TurboParser tpInst;
+		private Map<List<String>, String> syntaxCache;
+		private TurboWrapper tw;
+		public static TurboParser getInstance() {
+			if (tpInst == null)
+				return new TurboParser();
+			return tpInst;
+		}
+		private TurboParser() {
+			tw = new TurboWrapper();
+			syntaxCache = new HashMap<List<String>, String>();
+		}
+		
+		public String parse(List<String> sentence, boolean incremental) {
+			if (incremental) {
+				sentence.add("[virtual]");
+				sentence.add("[virtual]");
+				sentence.add("[unused]");
+			}
+			if (syntaxCache.containsKey(sentence))
+				return syntaxCache.get(sentence);
+			StringBuilder sentStr = new StringBuilder();
+			for (String word : sentence) {
+				sentStr.append(word).append("\n");
+			}
+			String tagged = tw.tag(sentStr.toString());
+			
+			// we need an additional "virtual" feature for VNs and unused 
+			String[] taggedList = tagged.split("\n");
+			StringBuilder correctedTagged = new StringBuilder();
+			for (String entry : taggedList) {
+				int virt = entry.indexOf("[virtual]");
+				if (virt > 0) {
+					correctedTagged.append(entry.replace("VIRT\t_", "VIRT\tvirtual"));
+					continue;
+				}
+				int unused = entry.indexOf("[unused]");
+				if (unused > 0) {
+					correctedTagged.append(entry.replace("ZZZNOWORD\t_", "ZZZNOWORD\tvirtual"));
+					continue;
+				}
+				correctedTagged.append(entry);
+			}
+			
+			// parse it, cache it, done
+			String result = tw.parse(correctedTagged.toString());
+			syntaxCache.put(sentence, result);
+			return result;
+		}
+		public String parse(Target target, boolean incremental) {
+			// first, get the sentence from target
+			List<String> sentence = new ArrayList<String>();
+			
+			Element segment = target.getMaryxmlElement();
+			if (segment == null)
+				return null;
+			Element phrase = (Element) MaryDomUtils.getAncestor(segment, MaryXML.PHRASE);
+			if (phrase == null)
+				return null;
+			TreeWalker tw = MaryDomUtils.createTreeWalker(phrase, MaryXML.TOKEN);
+			Element e;
+			while ((e = (Element) tw.nextNode()) != null) {
+				// TODO break if incremental and target reached
+				sentence.add(MaryDomUtils.tokenText(e));
+			}
+			return parse(sentence, incremental);
+			/* TODO why is this more complicated?
+			 * 			TreeWalker tw = MaryDomUtils.createTreeWalker(sentence, MaryXML.TOKEN, MaryXML.BOUNDARY);
+			tw.setCurrentNode(word);
+			Element next = (Element) tw.nextNode();
+			if (next == null || !next.getTagName().equals(MaryXML.TOKEN) || next.hasAttribute("ph"))
+				return 0;
+			String text = MaryDomUtils.tokenText(next);
+			if (values.contains(text)) {
+				return values.get(text);
+			}
+			 */
+		}
+		
+		
+		/**
+		 * computes the position of the target word 
+		 * @param target
+		 * @return 0-based position
+		 */
+		public static int nth0(Target target) {
+			Element segment = target.getMaryxmlElement();
+			if (segment == null)
+				return -1;
+			Element sentence = (Element) MaryDomUtils.getAncestor(segment, MaryXML.SENTENCE);
+			if (sentence == null)
+				return -1;
+			int count = 0;
+			TreeWalker tw = MaryDomUtils.createTreeWalker(sentence, MaryXML.TOKEN);
+			Element word = (Element) MaryDomUtils.getAncestor(segment, MaryXML.TOKEN);
+			if (word != null) {
+				tw.setCurrentNode(word);
+			} else {
+				tw.setCurrentNode(segment);
+			}
+			@SuppressWarnings("unused")
+			Element e;
+			while ((e = (Element) tw.previousNode()) != null) {
+					count++;
+			}
+			return count;
+		}
+		
+		public static String getTargetInfo(Target target, String parse) {
+			String[] splitted = parse.split("\n");
+			int position = nth0(target);
+			if (position == -1)
+				throw new RuntimeException("couldn't find word");
+			return splitted[position];
+			
+		}
+		
+	}
+
+
+	/**
+	 * Extracts the syntactic role of the word
+	 */
+	public static class SyntacticRoles implements ByteValuedFeatureProcessor {
+		private TurboParser tw;
+		private ByteStringTranslator values;
+		private boolean incremental;
+
+		
+		public SyntacticRoles(boolean incremental) {
+			this.incremental = incremental;
+			tw = TurboParser.getInstance();
+			values = new ByteStringTranslator(new String[] {
+					"_",
+					"ADV",
+					"ADV-GAP",
+					"AMOD",
+					"AMOD-GAP",
+					"APPO",
+					"BNF",
+					"CONJ",
+					"COORD",
+					"DEP",
+					"DEP-GAP",
+					"DIR",
+					"DIR-GAP",
+					"DIR-PRD",
+					"DTV",
+					"EXT",
+					"EXT-GAP",
+					"EXTR",
+					"EXTR-GAP",
+					"GAP-LGS",
+					"GAP-LOC",
+					"GAP-LOC-PRD",
+					"GAP-NMOD",
+					"GAP-OBJ",
+					"GAP-PMOD",
+					"GAP-PRD",
+					"GAP-PRP",
+					"GAP-PUT",
+					"GAP-SBJ",
+					"GAP-TMP",
+					"GAP-VC",
+					"IM",
+					"LGS",
+					"LOC",
+					"LOC-OPRD",
+					"LOC-PRD",
+					"MNR",
+					"NAME",
+					"NMOD",
+					"OBJ",
+					"OPRD",
+					"P",
+					"PMOD",
+					"POSTHON",
+					"PRD",
+					"PRD-PRP",
+					"PRD-TMP",
+					"PRN",
+					"PRP",
+					"PRT",
+					"PUT",
+					"ROOT",
+					"SBJ",
+					"SUB",
+					"SUFFIX",
+					"TITLE",
+					"TMP",
+					"UNUSED",
+					"VC",
+					"VOC"
+			});
+		}
+		@Override
+		public String getName() {
+			return incremental ? "syntacticRolInc" : "syntacticRole";
+		}
+
+		@Override
+		public String[] getValues() {
+			return values.getStringValues();
+		}
+		
+		@Override
+		public byte process(Target target) {
+			String parse = tw.parse(target, incremental);
+			if (parse == null)
+				throw new RuntimeException("Parsing unsuccessful");
+			String targetInfo = TurboParser.getTargetInfo(target, parse).split("\t")[7];
+			return (byte) values.get(targetInfo);
+		}
+	}
+
+	/**
+	 * Extracts the syntactic role of the word
+	 */
+	public static class TurboPoS implements ByteValuedFeatureProcessor {
+		private TurboParser tw;
+		private ByteStringTranslator values;
+		private boolean incremental;
+
+		
+		public TurboPoS(boolean incremental) {
+			this.incremental = incremental;
+			tw = TurboParser.getInstance();
+			values = new ByteStringTranslator(new String[] {
+					"``",
+					",",
+					":",
+					".",
+					"''",
+					"(",
+					")",
+					"$",
+					"#",
+					"CC",
+					"CD",
+					"DT",
+					"EX",
+					"FW",
+					"IN",
+					"JJ",
+					"JJR",
+					"JJS",
+					"LS",
+					"MD",
+					"NN",
+					"NNP",
+					"NNPS",
+					"NNS",
+					"NVIRT",
+					"PDT",
+					"POS",
+					"PRP",
+					"PRP$",
+					"RB",
+					"RBR",
+					"RBS",
+					"RP",
+					"SYM",
+					"TO",
+					"UH",
+					"VB",
+					"VBD",
+					"VBG",
+					"VBN",
+					"VBP",
+					"VBZ",
+					"VVIRT",
+					"WDT",
+					"WP",
+					"WP$",
+					"WRB",
+					"ZZZNOWORD"
+			});
+		}
+		@Override
+		public String getName() {
+			return incremental ? "turboPoSInc" : "turboPoS";
+		}
+
+		@Override
+		public String[] getValues() {
+			return values.getStringValues();
+		}
+		
+		@Override
+		public byte process(Target target) {
+			String parse = tw.parse(target, incremental);
+			if (parse == null)
+				throw new RuntimeException("Parsing unsuccessful");
+			String targetInfo = TurboParser.getTargetInfo(target, parse).split("\t")[4];
+			return (byte) values.get(targetInfo);
+		}
+	}
+
+	
+	
+	public static class DependencyDir implements ByteValuedFeatureProcessor {
+		private TurboParser tw;
+		private boolean incremental;
+
+		public DependencyDir(boolean incremental) {
+			this.incremental = incremental;
+			tw = TurboParser.getInstance();
+		}
+		@Override
+		public String getName() {
+			return incremental ? "dependencyDirInc" : "dependencyDir";
+		}
+
+		@Override
+		public String[] getValues() {
+			return ZERO_TO_NINETEEN;
+		}
+		
+		@Override
+		public byte process(Target target) {
+			String parse = tw.parse(target, incremental);
+			if (parse == null)
+				throw new RuntimeException("Parsing unsuccessful");
+			String targetInfo = TurboParser.getTargetInfo(target, parse).split("\t")[6];
+			int result = Integer.parseInt(targetInfo) + 10;
+			if (result < 0)
+				result = 0;
+			else if (result > 19)
+				result = 19;
+			
+			return (byte) result;
+		}
+	}
+	
+	
+	
 	/**
 	 * Counts the number of words until the end of the phrase.
 	 */
