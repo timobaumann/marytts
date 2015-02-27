@@ -185,6 +185,12 @@ public class FeatureProcessorManager {
 		addFeatureProcessor(new MaryGenericFeatureProcessors.WordsToNextPunctuation());
 		addFeatureProcessor(new MaryGenericFeatureProcessors.Selection_Prosody(syllable));
 		addFeatureProcessor(new MaryGenericFeatureProcessors.Style());
+		addFeatureProcessor(new MaryGenericFeatureProcessors.SyntacticRoles(true));
+		addFeatureProcessor(new MaryGenericFeatureProcessors.SyntacticRoles(false));
+		addFeatureProcessor(new MaryGenericFeatureProcessors.DependencyDir(true));
+		addFeatureProcessor(new MaryGenericFeatureProcessors.DependencyDir(false));
+		addFeatureProcessor(new MaryGenericFeatureProcessors.TurboPoS(true));
+		addFeatureProcessor(new MaryGenericFeatureProcessors.TurboPoS(false));
 
 		addFeatureProcessor(new MaryGenericFeatureProcessors.UnitDuration());
 		addFeatureProcessor(new MaryGenericFeatureProcessors.UnitLogF0());
