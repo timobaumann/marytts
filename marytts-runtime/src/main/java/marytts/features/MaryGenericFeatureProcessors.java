@@ -2081,17 +2081,18 @@ public class MaryGenericFeatureProcessors {
 
 	public static class TurboParser {
 		private static TurboParser tpInst;
-		private Map<List<String>, String> syntaxCache;
+		private Map<String, String> syntaxCache;
 		private TurboWrapper tw;
 		private WordNavigator wn;
 		public static TurboParser getInstance() {
-			if (tpInst == null)
-				return new TurboParser();
+			if (tpInst == null) {
+				tpInst = new TurboParser();
+			}
 			return tpInst;
 		}
 		private TurboParser() {
 			tw = new TurboWrapper();
-			syntaxCache = new HashMap<List<String>, String>();
+			syntaxCache = new HashMap<String, String>();
 			wn = new WordNavigator();
 		}
 		
@@ -2101,12 +2102,12 @@ public class MaryGenericFeatureProcessors {
 				sentence.add("[virtual]");
 				sentence.add("[unused]");
 			}
-			if (syntaxCache.containsKey(sentence))
-				return syntaxCache.get(sentence);
 			StringBuilder sentStr = new StringBuilder();
 			for (String word : sentence) {
 				sentStr.append(word).append("\n");
 			}
+			if (syntaxCache.containsKey(sentStr.toString()))
+				return syntaxCache.get(sentStr.toString());
 			String tagged = tw.tag(sentStr.toString());
 			
 			// we need an additional "virtual" feature for VNs and unused 
@@ -2115,47 +2116,56 @@ public class MaryGenericFeatureProcessors {
 			for (String entry : taggedList) {
 				int virt = entry.indexOf("[virtual]");
 				if (virt > 0) {
-					correctedTagged.append(entry.replace("VIRT\t_", "VIRT\tvirtual"));
+					correctedTagged.append(entry.replace("VIRT\t_", "VIRT\tvirtual")).append("\n");
 					continue;
 				}
 				int unused = entry.indexOf("[unused]");
 				if (unused > 0) {
-					correctedTagged.append(entry.replace("ZZZNOWORD\t_", "ZZZNOWORD\tvirtual"));
+					correctedTagged.append(entry.replace("ZZZNOWORD\t_", "ZZZNOWORD\tvirtual")).append("\n");
 					continue;
 				}
-				correctedTagged.append(entry);
+				correctedTagged.append(entry).append("\n");
 			}
 			
 			// parse it, cache it, done
 			String result = tw.parse(correctedTagged.toString());
-			syntaxCache.put(sentence, result);
+			syntaxCache.put(sentStr.toString(), result);
 			return result;
 		}
+		
 		public String parse(Target target, boolean incremental) {
 			// first, get the sentence from target
-			List<String> sentence = new ArrayList<String>();
+			List<String> sentenceWords = new ArrayList<String>();
 			
 			Element segment = target.getMaryxmlElement();
 			if (segment == null)
 				return null;
-			Element phrase = (Element) MaryDomUtils.getAncestor(segment, MaryXML.PHRASE);
-			if (phrase == null)
+			Element sentenceEl = (Element) MaryDomUtils.getAncestor(segment, MaryXML.SENTENCE);
+			if (sentenceEl == null)
 				return null;
-			TreeWalker tw = MaryDomUtils.createTreeWalker(phrase, MaryXML.TOKEN);
+			TreeWalker tw = MaryDomUtils.createTreeWalker(sentenceEl, MaryXML.TOKEN);
 			Element e;
 			if (incremental) {
-				Element newestWord = wn.getElement(target);
+				Element newestWord = (Element) MaryDomUtils.getAncestor(segment, MaryXML.TOKEN);
+				if (newestWord == null) {
+					// we are in a boundary which is not part of a token
+					assert segment.getNodeName().equals(MaryXML.BOUNDARY);
+					newestWord = (Element) segment.getPreviousSibling();
+				}
+				assert newestWord.getNodeName().equals(MaryXML.TOKEN);
 				do {
 					e = (Element) tw.nextNode();
-					sentence.add(MaryDomUtils.tokenText(e));
+					assert e != null : "could not find word for target " + target + " in incremental mode "; 
+					sentenceWords.add(MaryDomUtils.tokenText(e));
 				} while (e != newestWord);
 				
 			} else {
 				while ((e = (Element) tw.nextNode()) != null) {
-					sentence.add(MaryDomUtils.tokenText(e));
+					sentenceWords.add(MaryDomUtils.tokenText(e));
 				}
 			}
-			return parse(sentence, incremental);
+			// now perform the actual parsing
+			return parse(sentenceWords, incremental);
 		}
 		
 		
@@ -2178,10 +2188,10 @@ public class MaryGenericFeatureProcessors {
 				tw.setCurrentNode(word);
 			} else {
 				tw.setCurrentNode(segment);
+				assert segment.getNodeName().equals(MaryXML.BOUNDARY);
+				tw.previousNode();
 			}
-			@SuppressWarnings("unused")
-			Element e;
-			while ((e = (Element) tw.previousNode()) != null) {
+			while (tw.previousNode() != null) {
 					count++;
 			}
 			return count;
@@ -2190,8 +2200,8 @@ public class MaryGenericFeatureProcessors {
 		public static String getTargetInfo(Target target, String parse) {
 			String[] splitted = parse.split("\n");
 			int position = nth0(target);
-			if (position == -1)
-				throw new RuntimeException("couldn't find word");
+			if (position == -1 || position >= splitted.length)
+				throw new RuntimeException("couldn't find word at position " + position + " in parse: \n" + parse + "\n for target " + target.toString());
 			return splitted[position];
 			
 		}
