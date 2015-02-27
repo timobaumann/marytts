@@ -2083,6 +2083,7 @@ public class MaryGenericFeatureProcessors {
 		private static TurboParser tpInst;
 		private Map<List<String>, String> syntaxCache;
 		private TurboWrapper tw;
+		private WordNavigator wn;
 		public static TurboParser getInstance() {
 			if (tpInst == null)
 				return new TurboParser();
@@ -2091,6 +2092,7 @@ public class MaryGenericFeatureProcessors {
 		private TurboParser() {
 			tw = new TurboWrapper();
 			syntaxCache = new HashMap<List<String>, String>();
+			wn = new WordNavigator();
 		}
 		
 		public String parse(List<String> sentence, boolean incremental) {
@@ -2141,22 +2143,19 @@ public class MaryGenericFeatureProcessors {
 				return null;
 			TreeWalker tw = MaryDomUtils.createTreeWalker(phrase, MaryXML.TOKEN);
 			Element e;
-			while ((e = (Element) tw.nextNode()) != null) {
-				// TODO break if incremental and target reached
-				sentence.add(MaryDomUtils.tokenText(e));
+			if (incremental) {
+				Element newestWord = wn.getElement(target);
+				do {
+					e = (Element) tw.nextNode();
+					sentence.add(MaryDomUtils.tokenText(e));
+				} while (e != newestWord);
+				
+			} else {
+				while ((e = (Element) tw.nextNode()) != null) {
+					sentence.add(MaryDomUtils.tokenText(e));
+				}
 			}
 			return parse(sentence, incremental);
-			/* TODO why is this more complicated?
-			 * 			TreeWalker tw = MaryDomUtils.createTreeWalker(sentence, MaryXML.TOKEN, MaryXML.BOUNDARY);
-			tw.setCurrentNode(word);
-			Element next = (Element) tw.nextNode();
-			if (next == null || !next.getTagName().equals(MaryXML.TOKEN) || next.hasAttribute("ph"))
-				return 0;
-			String text = MaryDomUtils.tokenText(next);
-			if (values.contains(text)) {
-				return values.get(text);
-			}
-			 */
 		}
 		
 		
