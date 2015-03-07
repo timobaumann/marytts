@@ -51,6 +51,7 @@ import marytts.util.string.ByteStringTranslator;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 import org.w3c.dom.traversal.TreeWalker;
 
 import de.unihamburg.informatik.nats.jwcdg.predictors.TurboWrapper;
@@ -2152,13 +2153,19 @@ public class MaryGenericFeatureProcessors {
 					assert segment.getNodeName().equals(MaryXML.BOUNDARY);
 					newestWord = (Element) segment.getPreviousSibling();
 				}
-				assert newestWord.getNodeName().equals(MaryXML.TOKEN);
-				do {
-					e = (Element) tw.nextNode();
-					assert e != null : "could not find word for target " + target + " in incremental mode "; 
-					sentenceWords.add(MaryDomUtils.tokenText(e));
-				} while (e != newestWord);
-				
+				if (newestWord != null) { // newestWord can still be null if our utterance starts with a boundary (for whatever reason?)
+					if (newestWord.getNodeName().equals(MaryXML.MTU)) {
+						NodeList subTokens = newestWord.getElementsByTagName(MaryXML.TOKEN);
+						assert subTokens.getLength() > 0;
+						newestWord = (Element) subTokens.item(subTokens.getLength() - 1);
+					}
+					assert newestWord.getNodeName().equals(MaryXML.TOKEN) : newestWord;
+					do {
+						e = (Element) tw.nextNode();
+						assert e != null : "could not find word for target " + target + " in incremental mode "; 
+						sentenceWords.add(MaryDomUtils.tokenText(e));
+					} while (e != newestWord);
+				}
 			} else {
 				while ((e = (Element) tw.nextNode()) != null) {
 					sentenceWords.add(MaryDomUtils.tokenText(e));
@@ -2412,8 +2419,10 @@ public class MaryGenericFeatureProcessors {
 			String parse = tw.parse(target, incremental);
 			if (parse == null)
 				throw new RuntimeException("Parsing unsuccessful");
-			String targetInfo = TurboParser.getTargetInfo(target, parse).split("\t")[6];
-			int result = Integer.parseInt(targetInfo) + 10;
+			String[] targetInfo = TurboParser.getTargetInfo(target, parse).split("\t");
+			int head = Integer.parseInt(targetInfo[6]);
+			int currWord = Integer.parseInt(targetInfo[0]);
+			int result = head - currWord + 10;
 			if (result < 0)
 				result = 0;
 			else if (result > 19)
