@@ -2162,13 +2162,19 @@ public class MaryGenericFeatureProcessors {
 					assert newestWord.getNodeName().equals(MaryXML.TOKEN) : newestWord;
 					do {
 						e = (Element) tw.nextNode();
-						assert e != null : "could not find word for target " + target + " in incremental mode "; 
-						sentenceWords.add(MaryDomUtils.tokenText(e));
+						assert e != null : "could not find word for target " + target + " in incremental mode ";
+						String text = MaryDomUtils.tokenText(e);
+						if (! text.equals("")) {
+							sentenceWords.add(text);
+						}
 					} while (e != newestWord);
 				}
 			} else {
 				while ((e = (Element) tw.nextNode()) != null) {
-					sentenceWords.add(MaryDomUtils.tokenText(e));
+					String text = MaryDomUtils.tokenText(e);
+					if (! text.equals("")) {
+						sentenceWords.add(text);
+					}
 				}
 			}
 			// now perform the actual parsing
@@ -2198,7 +2204,9 @@ public class MaryGenericFeatureProcessors {
 				assert segment.getNodeName().equals(MaryXML.BOUNDARY);
 				tw.previousNode();
 			}
-			while (tw.previousNode() != null) {
+			Element e;
+			while ((e = (Element) tw.previousNode()) != null) {
+				if (! MaryDomUtils.tokenText(e).equals(""))
 					count++;
 			}
 			return count;
@@ -2209,6 +2217,7 @@ public class MaryGenericFeatureProcessors {
 			int position = nth0(target);
 			if (position == -1 || position >= splitted.length)
 				throw new RuntimeException("couldn't find word at position " + position + " in parse: \n" + parse + "\n for target " + target.toString());
+			assert splitted[position].contains(MaryDomUtils.tokenText(target.getMaryxmlElement())): "getTargetInfo picked "+splitted[position]+ "for target "+target.toString();
 			return splitted[position];
 			
 		}
