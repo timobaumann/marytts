@@ -2207,6 +2207,9 @@ public class MaryGenericFeatureProcessors {
 		public static String getTargetInfo(Target target, String parse) {
 			String[] splitted = parse.split("\n");
 			int position = nth0(target);
+			if (position >= splitted.length) {
+				position = splitted.length - 1;
+			}
 			if (position == -1 || position >= splitted.length)
 				throw new RuntimeException("couldn't find word at position " + position + " in parse: \n" + parse + "\n for target " + target.toString());
 			return splitted[position];
@@ -2293,7 +2296,7 @@ public class MaryGenericFeatureProcessors {
 		}
 		@Override
 		public String getName() {
-			return incremental ? "syntacticRolInc" : "syntacticRole";
+			return incremental ? "syntacticRoleInc" : "syntacticRole";
 		}
 
 		@Override
@@ -2318,21 +2321,31 @@ public class MaryGenericFeatureProcessors {
 		private TurboParser tw;
 		private ByteStringTranslator values;
 		private boolean incremental;
-
+		private Map<String,String> conversionTable;
 		
 		public TurboPoS(boolean incremental) {
 			this.incremental = incremental;
 			tw = TurboParser.getInstance();
+			conversionTable = new HashMap<String,String>();
+			conversionTable.put("``", "BACKTICKS");
+			conversionTable.put(",", "COMMA");
+			conversionTable.put(":", "COLON");
+			conversionTable.put(".", "FULLSTOP");
+			conversionTable.put("''", "TICKS");
+			conversionTable.put("(", "OPENPAREN");
+			conversionTable.put(")", "CLOSEPAREN");
+			conversionTable.put("$", "DOLLARSIGN");
+			conversionTable.put("#", "HASHSIGN");
 			values = new ByteStringTranslator(new String[] {
-					"``",
-					",",
-					":",
-					".",
-					"''",
-					"(",
-					")",
-					"$",
-					"#",
+					"BACKTICKS",
+					"COMMA",
+					"COLON",
+					"FULLSTOP",
+					"TICKS",
+					"OPENPAREN",
+					"CLOSEPAREN",
+					"DOLLARSIGN",
+					"HASHSIGN",
 					"CC",
 					"CD",
 					"DT",
@@ -2389,8 +2402,9 @@ public class MaryGenericFeatureProcessors {
 			String parse = tw.parse(target, incremental);
 			if (parse == null)
 				throw new RuntimeException("Parsing unsuccessful");
-			String targetInfo = TurboParser.getTargetInfo(target, parse).split("\t")[4];
-			return (byte) values.get(targetInfo);
+			String rawTargetInfo = TurboParser.getTargetInfo(target, parse).split("\t")[4];
+			String targetInfo = conversionTable.containsKey(rawTargetInfo) ? conversionTable.get(rawTargetInfo) : rawTargetInfo;
+			return values.get(targetInfo);
 		}
 	}
 
