@@ -2232,6 +2232,7 @@ public class MaryGenericFeatureProcessors {
 			this.incremental = incremental;
 			tw = TurboParser.getInstance();
 			values = new ByteStringTranslator(new String[] {
+					"0",
 					"_",
 					"ADV",
 					"ADV-GAP",
@@ -2337,6 +2338,7 @@ public class MaryGenericFeatureProcessors {
 			conversionTable.put("$", "DOLLARSIGN");
 			conversionTable.put("#", "HASHSIGN");
 			values = new ByteStringTranslator(new String[] {
+					"0",
 					"BACKTICKS",
 					"COMMA",
 					"COLON",
@@ -2446,7 +2448,100 @@ public class MaryGenericFeatureProcessors {
 		}
 	}
 	
+	public static abstract class BinaryParseFeature implements ByteValuedFeatureProcessor {
+		protected TurboParser tw;
+		protected boolean incremental;
+		private String featureName;
+		public BinaryParseFeature(String featName, boolean incremental) {
+			this.incremental = incremental;
+			this.featureName = featName;
+			tw = TurboParser.getInstance();
+		}
+		
+		@Override
+		public String getName() {
+			return incremental ? featureName + "Inc" : featureName;
+		}
+		
+		@Override
+		public String[] getValues() {
+			return new String[]{"0", "1"};
+		}
+		
+		@Override
+		public byte process(Target target) {
+			String parse = tw.parse(target, incremental);
+			if (parse == null)
+				throw new RuntimeException("Parsing unsuccessful");
+			return (byte) (featExtract(target, parse) ? 0 : 1);
+		}
+
+		abstract boolean featExtract(Target target, String parse);
+		
+	}
 	
+	public static class SentenceRootUpcoming extends BinaryParseFeature {
+		public SentenceRootUpcoming(boolean incremental) {
+			super("sentenceRootUpcoming", incremental);
+		}
+		@Override
+		boolean featExtract(Target target, String parse) {
+			int targetLine = TurboParser.nth0(target);
+			String[] allLines = parse.split("\n");
+			boolean isSentenceRootUpcoming = false;
+			for (int currLine = 0; currLine < allLines.length; currLine++) {
+				if ("0".equals(allLines[currLine].split("\t")[6])) {
+					isSentenceRootUpcoming = (currLine > targetLine);
+					break;
+				}
+			}
+			return isSentenceRootUpcoming;
+		}
+	}
+	
+	public static class VVFinOccurred extends BinaryParseFeature {
+		public VVFinOccurred(boolean incremental) {
+			super("VVFinOccurred", incremental);
+		}
+		@Override
+		boolean featExtract(Target target, String parse) {
+			int targetLine = TurboParser.nth0(target);
+			String[] allLines = parse.split("\n");
+			boolean VVFinOccurred = false;
+			for (int currLine = 0; currLine < allLines.length; currLine++) {
+				String currLinePOS = allLines[currLine].split("\t")[4];
+				if ("VBD".equals(currLinePOS) || 
+					"VBP".equals(currLinePOS) ||
+					"VBZ".equals(currLinePOS) ) {
+					VVFinOccurred = (currLine < targetLine);
+					break;
+				}
+			}
+			return VVFinOccurred;
+		}
+	}
+	
+	public static class ContainsNode extends BinaryParseFeature {
+		String POS;
+		public ContainsNode(String POS) {
+			super("Contains" + POS, true);
+			this.POS = POS;
+		}
+		@Override
+		boolean featExtract(Target target, String parse) {
+			String[] allLines = parse.split("\n");
+			String posLine = "";
+			for (String line : allLines) {
+				if (line.contains(POS)) {
+					posLine = line;
+					break;
+				}
+			}
+			assert !"".equals(posLine) : "did not find POS in any of \n" + parse;
+			int head = Integer.parseInt(posLine.split("\t")[6]);
+			return head != allLines.length;
+		}
+	}
 	
 	/**
 	 * Counts the number of words until the end of the phrase.

@@ -185,12 +185,15 @@ public class FeatureProcessorManager {
 		addFeatureProcessor(new MaryGenericFeatureProcessors.WordsToNextPunctuation());
 		addFeatureProcessor(new MaryGenericFeatureProcessors.Selection_Prosody(syllable));
 		addFeatureProcessor(new MaryGenericFeatureProcessors.Style());
-		addFeatureProcessor(new MaryGenericFeatureProcessors.SyntacticRoles(true));
-		addFeatureProcessor(new MaryGenericFeatureProcessors.SyntacticRoles(false));
-		addFeatureProcessor(new MaryGenericFeatureProcessors.DependencyDir(true));
-		addFeatureProcessor(new MaryGenericFeatureProcessors.DependencyDir(false));
-		addFeatureProcessor(new MaryGenericFeatureProcessors.TurboPoS(true));
-		addFeatureProcessor(new MaryGenericFeatureProcessors.TurboPoS(false));
+		for (final boolean incremental : new boolean[] { false, true} ) {
+			addFeatureProcessor(new MaryGenericFeatureProcessors.SyntacticRoles(incremental));
+			addFeatureProcessor(new MaryGenericFeatureProcessors.DependencyDir(incremental));
+			addFeatureProcessor(new MaryGenericFeatureProcessors.TurboPoS(incremental));
+			addFeatureProcessor(new MaryGenericFeatureProcessors.SentenceRootUpcoming(incremental));
+			addFeatureProcessor(new MaryGenericFeatureProcessors.VVFinOccurred(incremental));
+		}
+		addFeatureProcessor(new MaryGenericFeatureProcessors.ContainsNode("NVIRT"));
+		addFeatureProcessor(new MaryGenericFeatureProcessors.ContainsNode("VVIRT"));
 
 		addFeatureProcessor(new MaryGenericFeatureProcessors.UnitDuration());
 		addFeatureProcessor(new MaryGenericFeatureProcessors.UnitLogF0());
