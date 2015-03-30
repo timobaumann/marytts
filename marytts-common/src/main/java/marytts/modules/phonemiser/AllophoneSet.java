@@ -558,7 +558,25 @@ public class AllophoneSet {
 						currentSyllable.appendAllophone(allophone);
 					}
 				} catch (IllegalArgumentException e) {
-					throw e;
+					// it's a provided stress marker -- assign it to the Syllable
+					switch (phone) {
+					case Stress.PRIMARY:
+						iterator.remove();
+						currentSyllable.setStress(Stress.PRIMARY);
+						foundPrimaryStress = true;
+						break;
+					case Stress.SECONDARY:
+						iterator.remove();
+						currentSyllable.setStress(Stress.SECONDARY);
+						break;
+					case "-":
+						iterator.remove();
+						// TODO handle syllable boundaries
+						break;
+					default:
+						System.err.println("Trouble syllabifying within " + phoneString + " at position" + iterator.previousIndex());
+						throw e;
+					}
 				}
 			}
 		}
