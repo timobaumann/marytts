@@ -578,6 +578,7 @@ AC_ARG_VAR([MGCBANDWIDTH],[band width for MGC transforms (default=35 for cepstra
 AC_ARG_VAR([STRBANDWIDTH],[band width for STR transforms (default=5)])
 AC_ARG_VAR([MAGBANDWIDTH],[band width for MAG transforms (default=10)])
 AC_ARG_VAR([LF0BANDWIDTH],[band width for log F0 transforms (default=1)])
+AC_ARG_VAR([NPROCESS],[number of processes in parallel (default=5)])
 
 # default values
 if test -z "$NSTATE"; then
@@ -648,6 +649,14 @@ if test -z "$LF0BANDWIDTH"; then
 	LF0BANDWIDTH=1
 fi
 
+if test -z "$NPROCESS"; then
+   NPROCESS=5
+fi
+
+if (("$NPROCESS" > "$NSTATE")) || (("$NPROCESS" <= "0")); then
+   NPROCESS=$NSTATE
+fi
+
 # substitute variables
 AC_SUBST(NSTATE)
 AC_SUBST(NITER)
@@ -665,7 +674,7 @@ AC_SUBST(MGCBANDWIDTH)
 AC_SUBST(STRBANDWIDTH)
 AC_SUBST(MAGBANDWIDTH)
 AC_SUBST(LF0BANDWIDTH)
-
+AC_SUBST(NPROCESS)
 
 # parameter generation algorithm settings
 # parse command-line arguments

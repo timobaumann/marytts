@@ -44,6 +44,9 @@
 # ----------------------------------------------------------------- #
 
 $| = 1;
+use IO::Handle;
+STDERR->autoflush(1);
+STDOUT->autoflush(1);
 
 if ( @ARGV < 1 ) {
    print "usage: Training.pl Config.pm\n";
@@ -120,6 +123,16 @@ foreach $set (@SET) {
    $stcmmf{$set}  = "$model{$set}/stc.mmf";
    $stcammf{$set} = "$model{$set}/stc_all.mmf";
    $stcbase{$set} = "$model{$set}/stc.base";
+   if ($nProc > 1) {
+      my ($i,$n,@nstate);
+      $nstate{'cmp'} = $nState;
+      $nstate{'dur'} = 1;
+      $n = $nstate{$set};
+      for ($i=2;$n!=1 && $i<=$n+1;$i++) {
+         $clusmmf{$i.$set} = "$model{$set}/clustered.$i.mmf";
+         $reclmmf{$i.$set} = "$model{$set}/re_clustered.$i.mmf";
+      }
+   }
 }
 
 # statistics files
@@ -138,6 +151,16 @@ foreach $set (@SET) {
    foreach $type ( @{ $ref{$set} } ) {
       $cnv{$type} = "$hed{$set}/cnv_$type.hed";
       $cxc{$type} = "$hed{$set}/cxc_$type.hed";
+      if ($nProc > 1) {
+         my ($i,$n,@nstate);
+         $nstate{'cmp'} = $nState;
+         $nstate{'dur'} = 1;
+         $n = $nstate{$t2s{$type}};
+         for ($i=2;$n!=1 && $i<=$n+1;$i++) {
+            $cxc{$i.$type} = "$hed{$set}/cxc_$type.$i.hed";
+         }
+         $cxc{$type.".jm"} = "$hed{$set}/cxc_$type.jm.hed";
+      }
    }
 }
 
@@ -155,6 +178,15 @@ foreach $set (@SET) {
    foreach $type ( @{ $ref{$set} } ) {
       $mdl{$type} = "-m -a $mdlf{$type}" if ( $thr{$type} eq '000' );
       $tre{$type} = "$trd{$set}/${type}.inf";
+      if ($nProc > 1) {
+         my ($i,$n,@nstate);
+         $nstate{'cmp'} = $nState;
+         $nstate{'dur'} = 1;
+         $n = $nstate{$t2s{$type}};
+         for ($i=2;$n!=1 && $i<=$n+1;$i++) {
+            $tre{$i.$type} = "$trd{$set}/${type}.$i.inf";
+         }
+      }
    }
 }
 
@@ -498,12 +530,64 @@ if ($CXCL1) {
       shell("cp $fullmmf{$set} $clusmmf{$set}");
 
       $footer = "";
-      foreach $type ( @{ $ref{$set} } ) {
-         if ( $strw{$type} > 0.0 ) {
-            make_edfile_state($type);
-            shell("$HHEd{'trn'} -C $cfg{$type} -H $clusmmf{$set} $mdl{$type} -w $clusmmf{$set} $cxc{$type} $lst{'ful'}");
-            $footer .= "_$type";
-            shell("gzip -c $clusmmf{$set} > $clusmmf{$set}$footer.gz");
+      if ($set eq 'dur') {
+         foreach $type ( @{ $ref{$set} } ) {
+            if ( $strw{$type} > 0.0 ) {
+               make_edfile_state($type);
+               shell("$HHEd{'trn'} -C $cfg{$type} -H $clusmmf{$set} $mdl{$type} -w $clusmmf{$set} $cxc{$type} $lst{'ful'}");
+               $footer .= "_$type";
+               shell("gzip -c $clusmmf{$set} > $clusmmf{$set}$footer.gz");
+            }
+         }
+      } else { # 'cmp'
+         foreach $type ( @{ $ref{$set} } ) { # 'mgc' or 'lf0'
+            if ( $strw{$type} > 0.0 ) {
+               make_edfile_state($type);
+               if ($nProc == 1) {
+                  shell("$HHEd{'trn'} -C $cfg{$type} -H $clusmmf{$set} $mdl{$type} -w $clusmmf{$set} $cxc{$type} $lst{'ful'}");
+               } else {
+                  my ($i,$n,@nstate);
+                  my ($nSubProc,@pids,@subOutput,@subPipe);
+                  $nstate{'cmp'} = $nState;
+                  $nstate{'dur'} = 1;
+                  $n = $nstate{$t2s{$type}};
+                  $nSubProc = 0;
+                  for ($i=2;$i<=$n+1;$i++) {
+                     # Control max number of processes
+                     while ($nSubProc >= $nProc) {
+                        wait;
+                        $nSubProc--;
+                     }
+                     $subPipe[$i] = *OUTPUT.$i;
+                     if ($pids[$i] = open($subPipe[$i], "-|")) { # Parent
+                        $nSubProc++;
+                     } else { # Child
+                        die "Cannot fork: $!" unless defined $pids[$i];
+                        shell("$HHEd{'trn'} -C $cfg{$type} -H $clusmmf{$set} $mdl{$type} -w $clusmmf{$i.$set} $cxc{$i.$type} $lst{'ful'}");
+                        exit;
+                     }
+                  }
+                  # Wait all subprocesses to terminate
+                  for ($i=2;$i<=$n+1;$i++) {
+                     waitpid($pids[$i],0);
+                     # Catch output of subprocess
+                     while(readline($subPipe[$i])) {
+                        $subOutput[$i] .= $_;
+                     }
+                     close($subPipe[$i]);
+                     print STDOUT $subOutput[$i];
+                  }
+                  # Join Model
+                  make_edfile_join(%clusmmf);
+                  shell("$HHEd{'trn'} -C $cfg{$type} -H $clusmmf{$set} $mdl{$type} -w $clusmmf{$set} $cxc{$type.'.jm'} $lst{'ful'}");
+                  # cleanup
+                  for ($i=2;$i<=$nstate{$t2s{$type}}+1;$i++) {
+                     unlink $clusmmf{$i.$set} || die "Cannot remove $clusmmf{$i.$set}";
+                  }
+               }
+               $footer .= "_$type";
+               shell("gzip -c $clusmmf{$set} > $clusmmf{$set}$footer.gz");
+            }
          }
       }
    }
@@ -540,6 +624,17 @@ foreach $set (@SET) {
    foreach $type ( @{ $ref{$set} } ) {
       $tre{$type} .= ".untied";
       $cxc{$type} .= ".untied";
+      if ($nProc > 1) {
+         my ($i,$n,@nstate);
+         $nstate{'cmp'} = $nState;
+         $nstate{'dur'} = 1;
+         $cxc{$type.".jm"}   .= ".untied";
+         $n = $nstate{$t2s{$type}};
+         for ($i=2;$n!=1 && $i<=$n+1;$i++) {
+            $tre{$i.$type}   .= ".untied";
+            $cxc{$i.$type}   .= ".untied";
+         }
+      }
    }
 }
 
@@ -565,12 +660,62 @@ if ($CXCL2) {
       shell("cp $untymmf{$set} $reclmmf{$set}");
 
       $footer = "";
-      foreach $type ( @{ $ref{$set} } ) {
-         make_edfile_state($type);
-         shell("$HHEd{'trn'} -C $cfg{$type} -H $reclmmf{$set} $mdl{$type} -w $reclmmf{$set} $cxc{$type} $lst{'ful'}");
+      if ($set eq 'dur') {
+         foreach $type ( @{ $ref{$set} } ) {
+            make_edfile_state($type);
+            shell("$HHEd{'trn'} -C $cfg{$type} -H $reclmmf{$set} $mdl{$type} -w $reclmmf{$set} $cxc{$type} $lst{'ful'}");
 
-         $footer .= "_$type";
-         shell("gzip -c $reclmmf{$set} > $reclmmf{$set}$footer.gz");
+            $footer .= "_$type";
+            shell("gzip -c $reclmmf{$set} > $reclmmf{$set}$footer.gz");
+         }
+      } else { # 'cmp'
+         foreach $type (@{$ref{$set}}) { # 'mgc' or 'lf0'
+            make_edfile_state($type);
+            if ($nProc == 1) {
+               shell("$HHEd{'trn'} -C $cfg{$type} -H $reclmmf{$set} $mdl{$type} -w $reclmmf{$set} $cxc{$type} $lst{'ful'}");
+            } else {
+               my ($i,$n,@nstate);
+               my ($nSubProc,@pids,@subOutput,@subPipe);
+               $nstate{'cmp'} = $nState;
+               $nstate{'dur'} = 1;
+               $n = $nstate{$t2s{$type}};
+               $nSubProc = 0;
+               for ($i=2;$i<=$n+1;$i++) {
+                  # Control max number of processes
+                  while ($nSubProc >= $nProc) {
+                     wait;
+                     $nSubProc--;
+                  }
+                  $subPipe[$i] = *OUTPUT.$i;
+                  if ($pids[$i] = open($subPipe[$i], "-|")) { # Parent
+                     $nSubProc++;
+                  } else { # Child
+                     die "Cannot fork: $!" unless defined $pids[$i];
+                     shell("$HHEd{'trn'} -C $cfg{$type} -H $reclmmf{$set} $mdl{$type} -w $reclmmf{$i.$set} $cxc{$i.$type} $lst{'ful'}");
+                     exit;
+                  }
+               }
+               # Wait all subprocesses to terminate
+               for ($i=2;$i<=$n+1;$i++) {
+                  waitpid($pids[$i],0);
+                  # Catch output of subprocess
+                  while(readline($subPipe[$i])) {
+                     $subOutput[$i] .= $_;
+                  }
+                  close($subPipe[$i]);
+                  print STDOUT $subOutput[$i];
+               }
+               # Join Model
+               make_edfile_join(%reclmmf);
+               shell("$HHEd{'trn'} -H $reclmmf{$set} $mdl{$type} -w $reclmmf{$set} $cxc{$type.'.jm'} $lst{'ful'}");
+               for ($i=2;$i<=$nstate{$t2s{$type}}+1;$i++) {
+                  unlink $reclmmf{$i.$set} || die "Cannot remove $reclmmf{$i.$set}";
+               }
+            }
+
+            $footer .= "_$type";
+            shell("gzip -c $reclmmf{$set} > $reclmmf{$set}$footer.gz");
+         }
       }
       shell("gzip -c $reclmmf{$set} > $reclmmf{$set}.nonembedded.gz");
    }
@@ -1591,30 +1736,61 @@ sub make_config {
 # sub routine for generating .hed files for decision-tree clustering
 sub make_edfile_state($) {
    my ($type) = @_;
-   my ( @lines, $i, @nstate );
+   my ( @lines, $i, $n, @nstate );
 
    $nstate{'cmp'} = $nState;
    $nstate{'dur'} = 1;
+   $n = $nstate{$t2s{$type}};
 
    open( QSFILE, "$qs{$type}" ) || die "Cannot open $!";
    @lines = <QSFILE>;
    close(QSFILE);
-
-   open( EDFILE, ">$cxc{$type}" ) || die "Cannot open $!";
-   print EDFILE "// load stats file\n";
-   print EDFILE "RO $gam{$type} \"$stats{$t2s{$type}}\"\n\n";
-   print EDFILE "TR 0\n\n";
-   print EDFILE "// questions for decision tree-based context clustering\n";
-   print EDFILE @lines;
-   print EDFILE "TR 3\n\n";
-   print EDFILE "// construct decision trees\n";
-
-   for ( $i = 2 ; $i <= $nstate{ $t2s{$type} } + 1 ; $i++ ) {
-      print EDFILE "TB $thr{$type} ${type}_s${i}_ {*.state[${i}].stream[$strb{$type}-$stre{$type}]}\n";
+   if ($nProc == 1 || $n == 1) {
+      open( EDFILE, ">$cxc{$type}" ) || die "Cannot open $!";
+      print EDFILE "// load stats file\n";
+      print EDFILE "RO $gam{$type} \"$stats{$t2s{$type}}\"\n\n";
+      print EDFILE "TR 0\n\n";
+      print EDFILE "// questions for decision tree-based context clustering\n";
+      print EDFILE @lines;
+      print EDFILE "TR 3\n\n";
+      print EDFILE "// construct decision trees\n";
+      for ( $i = 2 ; $i <= $nstate{ $t2s{$type} } + 1 ; $i++ ) {
+         print EDFILE "TB $thr{$type} ${type}_s${i}_ {*.state[${i}].stream[$strb{$type}-$stre{$type}]}\n";
+      }
+      print EDFILE "\nTR 1\n\n";
+      print EDFILE "// output constructed trees\n";
+      print EDFILE "ST \"$tre{$type}\"\n";
+      close(EDFILE);
+   } else {
+      for ($i=2;$i<=$n+1;$i++) {
+         open(EDFILE,">$cxc{$i.$type}") || die "Cannot open $!";
+         print EDFILE "// load stats file\n";
+         print EDFILE "RO $gam{$type} \"$stats{$t2s{$type}}\"\n\n";   
+         print EDFILE "TR 0\n\n";
+         print EDFILE "// questions for decision tree-based context clustering\n";
+         print EDFILE @lines;
+         print EDFILE "TR 3\n\n";
+         print EDFILE "// construct decision trees\n";
+         print EDFILE "TB $thr{$type} ${type}_s${i}_ {*.state[${i}].stream[$strb{$type}-$stre{$type}]}\n";
+         print EDFILE "\nTR 1\n\n";
+         print EDFILE "// output constructed trees\n";
+         print EDFILE "ST \"$tre{$i.$type}\"\n";
+         close(EDFILE);
+      }	
    }
-   print EDFILE "\nTR 1\n\n";
-   print EDFILE "// output constructed trees\n";
-   print EDFILE "ST \"$tre{$type}\"\n";
+}
+
+# sub routine for joining models
+sub make_edfile_join($){
+   my(%mmf) = @_;
+   my(@lines,$i,@nstate);
+
+   $nstate{'cmp'} = $nState;
+   $nstate{'dur'} = 1;
+   open(EDFILE,">$cxc{$type.'.jm'}") || die "Cannot open $!";
+   for ($i=2;$i<=$nstate{$t2s{$type}}+1;$i++) {
+      print EDFILE "JM $mmf{$i.'cmp'} {*.state[${i}].stream[$strb{$type}-$stre{$type}]}\n";
+   }
    close(EDFILE);
 }
 
@@ -1722,7 +1898,17 @@ sub make_edfile_convert($) {
    open( EDFILE, ">$cnv{$type}" ) || die "Cannot open $!";
    print EDFILE "\nTR 2\n\n";
    print EDFILE "// load trees for $type\n";
-   print EDFILE "LT \"$tre{$type}\"\n\n";
+   my ($i,$n,@nstate);
+   $nstate{'cmp'} = $nState;
+   $nstate{'dur'} = 1;
+   $n = $nstate{$t2s{$type}};
+   if ($nProc == 1 || $n == 1) {
+      print EDFILE "LT \"$tre{$type}\"\n\n";
+   } else {
+      for ($i=2;$n!=1 && $i<=$n+1;$i++) {
+         print EDFILE "LT \"$tre{$i.$type}\"\n\n";
+      }
+   }
 
    print EDFILE "// convert loaded trees for hts_engine format\n";
    print EDFILE "CT \"$trd{$t2s{$type}}\"\n\n";
@@ -1760,7 +1946,17 @@ sub make_edfile_mkunseen($) {
    print EDFILE "\nTR 2\n\n";
    foreach $type ( @{ $ref{$set} } ) {
       print EDFILE "// load trees for $type\n";
-      print EDFILE "LT \"$tre{$type}\"\n\n";
+      my ($i,$n,@nstate);
+      $nstate{'cmp'} = $nState;
+      $nstate{'dur'} = 1;
+      $n = $nstate{$t2s{$type}};
+      if ($nProc == 1 || $n == 1) {
+         print EDFILE "LT \"$tre{$type}\"\n\n";
+      } else {
+         for ($i=2;$n!=1 && $i<=$n+1;$i++) {
+            print EDFILE "LT \"$tre{$i.$type}\"\n\n";
+         }
+      }
    }
 
    print EDFILE "// make unseen model\n";
