@@ -147,16 +147,15 @@ public class EHMMLabeler extends VoiceImportComponent {
 		if (!ehmmFile.exists()) {
 			throw new IOException("EHMM path setting is wrong. Because file " + ehmmFile.getAbsolutePath() + " does not exist");
 		}
+		// get the voicename
+		voicename = db.getProp(db.VOICENAME);
+		// make new directories ehmm and etc
+		ehmm = new File(getProp(EDIR));
+		// get the output directory of files used by EHMM
+		outputDir = ehmm.getAbsolutePath() + "/etc";
 		if ("true".equals(getProp(PREPAREFILESFLAG))) {
 			System.out.println("Preparing voice database for labelling using EHMM :");
 			System.out.println("See $ROOTDIR/ehmm/log.txt for EHMM Labelling status... ");
-			// get the voicename
-			voicename = db.getProp(db.VOICENAME);
-			// make new directories ehmm and etc
-			ehmm = new File(getProp(EDIR));
-			// get the output directory of files used by EHMM
-			outputDir = ehmm.getAbsolutePath() + "/etc";
-
 			// setup the EHMM directory
 			System.out.println("Setting up EHMM directory ...");
 			setup();
@@ -203,7 +202,7 @@ public class EHMMLabeler extends VoiceImportComponent {
 			System.out.println("Skipping training.");
 		}
 
-		if ("true".equals(getProp(TRAININGFLAG))) {
+		if ("true".equals(getProp(ALIGNMENTFLAG))) {
 			System.out.println("See $ROOTDIR/ehmm/log.txt for EHMM Labelling status... ");
 			System.out.println("Aligning EHMM for labelling ...");
 			alignEHMM();
