@@ -8,8 +8,9 @@ import marytts.unitselection.select.Target;
 import marytts.util.string.ByteStringTranslator;
 
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
-
+@Ignore
 public class TargetFeatureComputerTest {
 
 	private TestByteValuedFeatureProcessor processor;
