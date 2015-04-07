@@ -123,7 +123,7 @@ foreach $set (@SET) {
    $stcmmf{$set}  = "$model{$set}/stc.mmf";
    $stcammf{$set} = "$model{$set}/stc_all.mmf";
    $stcbase{$set} = "$model{$set}/stc.base";
-   if ($nProc > 1) {
+   if ($nProcHHEd > 1) {
       my ($i,$n,@nstate);
       $nstate{'cmp'} = $nState;
       $nstate{'dur'} = 1;
@@ -151,7 +151,7 @@ foreach $set (@SET) {
    foreach $type ( @{ $ref{$set} } ) {
       $cnv{$type} = "$hed{$set}/cnv_$type.hed";
       $cxc{$type} = "$hed{$set}/cxc_$type.hed";
-      if ($nProc > 1) {
+      if ($nProcHHEd > 1) {
          my ($i,$n,@nstate);
          $nstate{'cmp'} = $nState;
          $nstate{'dur'} = 1;
@@ -178,7 +178,7 @@ foreach $set (@SET) {
    foreach $type ( @{ $ref{$set} } ) {
       $mdl{$type} = "-m -a $mdlf{$type}" if ( $thr{$type} eq '000' );
       $tre{$type} = "$trd{$set}/${type}.inf";
-      if ($nProc > 1) {
+      if ($nProcHHEd > 1) {
          my ($i,$n,@nstate);
          $nstate{'cmp'} = $nState;
          $nstate{'dur'} = 1;
@@ -249,6 +249,12 @@ $HInit         = "$HINIT     -A    -C $cfg{'trn'} -D -T 1 -S $scp{'trn'}        
 $HRest         = "$HREST     -A    -C $cfg{'trn'} -D -T 1 -S $scp{'trn'}                -m 1 -u tmvw    -w $wf ";
 $HERest{'mon'} = "$HEREST    -A    -C $cfg{'trn'} -D -T 1 -S $scp{'trn'} -I $mlf{'mon'} -m 1 -u tmvwdmv -w $wf -t $beam ";
 $HERest{'ful'} = "$HEREST    -A -B -C $cfg{'trn'} -D -T 1 -S $scp{'trn'} -I $mlf{'ful'} -m 1 -u tmvwdmv -w $wf -t $beam ";
+if ($nProcHERest > 1) {
+   $HERest{'monMAP'} = "$HEREST    -A    -C $cfg{'trn'} -D -T 1 -S $scp{'trn'}.{} -I $mlf{'mon'} -m 1 -u tmvwdmv -w $wf -t $beam ";
+   $HERest{'fulMAP'} = "$HEREST    -A -B -C $cfg{'trn'} -D -T 1 -S $scp{'trn'}.{} -I $mlf{'ful'} -m 1 -u tmvwdmv -w $wf -t $beam ";
+   $HERest{'monREDUCE'} = "$HEREST    -A    -C $cfg{'trn'} -D -T 1 -I $mlf{'mon'} -m 1 -u tmvwdmv -w $wf -t $beam ";
+   $HERest{'fulREDUCE'} = "$HEREST    -A -B -C $cfg{'trn'} -D -T 1 -I $mlf{'ful'} -m 1 -u tmvwdmv -w $wf -t $beam ";
+}
 $HERest{'gv'}  = "$HEREST    -A    -C $cfg{'trn'} -D -T 1 -S $scp{'gv'}  -I $mlf{'gv'}  -m 1 ";
 $HHEd{'trn'}   = "$HHED      -A -B -C $cfg{'trn'} -D -T 1 -p -i ";
 $HHEd{'cnv'}   = "$HHED      -A -B -C $cfg{'cnv'} -D -T 1 -p -i ";
@@ -361,6 +367,13 @@ if ($IN_RE) {
    }
    else {
       open( LIST, $lst{'mon'} ) || die "Cannot open $!";
+      my $commands;
+      if ($nProcHRest > 1) {
+         $lab = $mlf{'mon'};
+         $commands = "parallel -j $nProcHRest -i sh -c " .
+                     "\"$HInit -H $initmmf{'cmp'} -M $hinit{'cmp'} -I $lab -l {} -o {} $prtfile{'cmp'}; " .
+                     "$HRest -H $initmmf{'cmp'} -M $hrest{'cmp'} -I $lab -l {} -g $hrest{'dur'}/{} $hinit{'cmp'}/{}\" -- ";
+      }
       while ( $phone = <LIST> ) {
 
          # trimming leading and following whitespace characters
@@ -375,11 +388,18 @@ if ($IN_RE) {
 
          if ( grep( $_ eq $phone, keys %mdcp ) <= 0 ) {
             print "=============== $phone ================\n";
-            shell("$HInit -H $initmmf{'cmp'} -M $hinit{'cmp'} -I $lab -l $phone -o $phone $prtfile{'cmp'}");
-            shell("$HRest -H $initmmf{'cmp'} -M $hrest{'cmp'} -I $lab -l $phone -g $hrest{'dur'}/$phone $hinit{'cmp'}/$phone");
+            if ($nProcHRest > 1) {
+               $commands .= "$phone ";
+            } else {
+               shell("$HInit -H $initmmf{'cmp'} -M $hinit{'cmp'} -I $lab -l $phone -o $phone $prtfile{'cmp'}");
+               shell("$HRest -H $initmmf{'cmp'} -M $hrest{'cmp'} -I $lab -l $phone -g $hrest{'dur'}/$phone $hinit{'cmp'}/$phone");
+            }
          }
       }
       close(LIST);
+      if ($nProcHRest > 1) {
+         shell($commands);
+      }
 
       open( LIST, $lst{'mon'} ) || die "Cannot open $!";
       while ( $phone = <LIST> ) {
@@ -460,7 +480,21 @@ if ($ERST0) {
 
          # embedded reestimation
          print("\n\nIteration $i of Embedded Re-estimation\n");
-         shell("$HERest{'mon'} -H $monommf{'cmp'} -N $monommf{'dur'} -M $model{'cmp'} -R $model{'dur'} $lst{'mon'} $lst{'mon'}");
+	 if ($nProcHERest > 1) {
+	    shell("for i in `seq 1 $nProcHERest`; do split -n r/\$i/$nProcHERest $scp{'trn'} > ${scp{'trn'}}.\$i; done");
+            my $command = "parallel -j $nProcHERest -i $HERest{'monMAP'} -H $monommf{'cmp'} -N $monommf{'dur'} -M $model{'cmp'} -p {} -R $model{'dur'} $lst{'mon'} $lst{'mon'} -- ";
+	    for ( my $j = 1; $j <= $nProcHERest; $j++) {
+	       $command .= "$j ";
+	    }
+	    # map:
+	    shell($command);
+	    # reduce:
+	    $acc = `find ${model{'cmp'}}/HER*.acc | sort -rn | tr '\\n' ' '`;
+	    shell("$HERest{'monREDUCE'} -H $monommf{'cmp'} -N $monommf{'dur'} -M $model{'cmp'} -p 0 -R $model{'dur'} $lst{'mon'} $lst{'mon'} $acc");
+            shell("rm ${scp{'trn'}}.*");
+	 } else {
+            shell("$HERest{'mon'} -H $monommf{'cmp'} -N $monommf{'dur'} -M $model{'cmp'} -R $model{'dur'} $lst{'mon'} $lst{'mon'}");
+	 }
       }
    }
 
@@ -510,7 +544,21 @@ if ($ERST1) {
 
    # embedded reestimation
    print("\n\nEmbedded Re-estimation\n");
-   shell("$HERest{'ful'} -H $fullmmf{'cmp'} -N $fullmmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'}");
+   if ($nProcHERest > 1) {
+      shell("for i in `seq 1 $nProcHERest`; do split -n r/\$i/$nProcHERest $scp{'trn'} > ${scp{'trn'}}.\$i; done");
+      my $command = "parallel -j $nProcHERest -i $HERest{'fulMAP'} -H $fullmmf{'cmp'} -N $fullmmf{'dur'} -M $model{'cmp'} -p {} -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'} -- ";
+      for (my $j = 1; $j <= $nProcHERest; $j++) {
+         $command .= "$j ";
+      }
+      # map:
+      shell($command);
+      # reduce:
+      $acc = `find ${model{'cmp'}}/HER*.acc | sort -rn | tr '\\n' ' '`;
+      shell("$HERest{'fulREDUCE'} -H $fullmmf{'cmp'} -N $fullmmf{'dur'} -M $model{'cmp'} -p 0 -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'} $acc");
+      shell("rm ${scp{'trn'}}.*");
+   } else {
+      shell("$HERest{'ful'} -H $fullmmf{'cmp'} -N $fullmmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'}");
+   }
 
    # compress reestimated model
    foreach $set (@SET) {
@@ -543,7 +591,7 @@ if ($CXCL1) {
          foreach $type ( @{ $ref{$set} } ) { # 'mgc' or 'lf0'
             if ( $strw{$type} > 0.0 ) {
                make_edfile_state($type);
-               if ($nProc == 1) {
+               if ($nProcHHEd == 1) {
                   shell("$HHEd{'trn'} -C $cfg{$type} -H $clusmmf{$set} $mdl{$type} -w $clusmmf{$set} $cxc{$type} $lst{'ful'}");
                } else {
                   my ($i,$n,@nstate);
@@ -554,7 +602,7 @@ if ($CXCL1) {
                   $nSubProc = 0;
                   for ($i=2;$i<=$n+1;$i++) {
                      # Control max number of processes
-                     while ($nSubProc >= $nProc) {
+                     while ($nSubProc >= $nProcHHEd) {
                         wait;
                         $nSubProc--;
                      }
@@ -599,7 +647,21 @@ if ($ERST2) {
 
    for ( $i = 1 ; $i <= $nIte ; $i++ ) {
       print("\n\nIteration $i of Embedded Re-estimation\n");
-      shell("$HERest{'ful'} -H $clusmmf{'cmp'} -N $clusmmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $lst{'ful'} $lst{'ful'}");
+      if ($nProcHERest > 1) {
+         shell("for i in `seq 1 $nProcHERest`; do split -n r/\$i/$nProcHERest $scp{'trn'} > ${scp{'trn'}}.\$i; done");
+         my $command = "parallel -j $nProcHERest -i $HERest{'fulMAP'} -H $clusmmf{'cmp'} -N $clusmmf{'dur'} -M $model{'cmp'} -p {} -R $model{'dur'} $lst{'ful'} $lst{'ful'} -- ";
+         for (my $j = 1; $j <= $nProcHERest; $j++) {
+            $command .= "$j ";
+         }
+         # map:
+         shell($command);
+         # reduce:
+         $acc = `find ${model{'cmp'}}/HER*.acc | sort -rn | tr '\\n' ' '`;
+         shell("$HERest{'fulREDUCE'} -H $clusmmf{'cmp'} -N $clusmmf{'dur'} -M $model{'cmp'} -p 0 -R $model{'dur'} $lst{'ful'} $lst{'ful'} $acc");
+         shell("rm ${scp{'trn'}}.*");   
+      } else {
+         shell("$HERest{'ful'} -H $clusmmf{'cmp'} -N $clusmmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $lst{'ful'} $lst{'ful'}");
+      }
    }
 
    # compress reestimated mmfs
@@ -624,7 +686,7 @@ foreach $set (@SET) {
    foreach $type ( @{ $ref{$set} } ) {
       $tre{$type} .= ".untied";
       $cxc{$type} .= ".untied";
-      if ($nProc > 1) {
+      if ($nProcHHEd > 1) {
          my ($i,$n,@nstate);
          $nstate{'cmp'} = $nState;
          $nstate{'dur'} = 1;
@@ -645,7 +707,21 @@ if ($ERST3) {
    $opt = "-C $cfg{'nvf'} -s $stats{'cmp'} -w 0.0";
 
    print("\n\nEmbedded Re-estimation for untied mmfs\n");
-   shell("$HERest{'ful'} -H $untymmf{'cmp'} -N $untymmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'}");
+   if ($nProcHERest > 1) {
+      shell("for i in `seq 1 $nProcHERest`; do split -n r/\$i/$nProcHERest $scp{'trn'} > ${scp{'trn'}}.\$i; done");
+      my $command = "parallel -j $nProcHERest -i $HERest{'fulMAP'} -H $untymmf{'cmp'} -N $untymmf{'dur'} -M $model{'cmp'} -p {} -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'} -- ";
+      for (my $j = 1; $j <= $nProcHERest; $j++) {
+         $command .= "$j ";
+      }
+      # map:
+      shell($command);
+      # reduce:
+     $acc = `find ${model{'cmp'}}/HER*.acc | sort -rn | tr '\\n' ' '`;
+     shell("$HERest{'fulREDUCE'} -H $untymmf{'cmp'} -N $untymmf{'dur'} -M $model{'cmp'} -p 0 -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'} $acc");
+      shell("rm ${scp{'trn'}}.*");   
+   } else {
+      shell("$HERest{'ful'} -H $untymmf{'cmp'} -N $untymmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $opt $lst{'ful'} $lst{'ful'}");
+   }
 }
 
 # HHEd (tree-based context clustering)
@@ -671,7 +747,7 @@ if ($CXCL2) {
       } else { # 'cmp'
          foreach $type (@{$ref{$set}}) { # 'mgc' or 'lf0'
             make_edfile_state($type);
-            if ($nProc == 1) {
+            if ($nProcHHEd == 1) {
                shell("$HHEd{'trn'} -C $cfg{$type} -H $reclmmf{$set} $mdl{$type} -w $reclmmf{$set} $cxc{$type} $lst{'ful'}");
             } else {
                my ($i,$n,@nstate);
@@ -682,7 +758,7 @@ if ($CXCL2) {
                $nSubProc = 0;
                for ($i=2;$i<=$n+1;$i++) {
                   # Control max number of processes
-                  while ($nSubProc >= $nProc) {
+                  while ($nSubProc >= $nProcHHEd) {
                      wait;
                      $nSubProc--;
                   }
@@ -727,7 +803,21 @@ if ($ERST4) {
 
    for ( $i = 1 ; $i <= $nIte ; $i++ ) {
       print("\n\nIteration $i of Embedded Re-estimation\n");
-      shell("$HERest{'ful'} -H $reclmmf{'cmp'} -N $reclmmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $lst{'ful'} $lst{'ful'}");
+      if ($nProcHERest > 1) {
+         shell("for i in `seq 1 $nProcHERest`; do split -n r/\$i/$nProcHERest $scp{'trn'} > ${scp{'trn'}}.\$i; done");
+         my $command = "parallel -j $nProcHERest -i $HERest{'fulMAP'} -H $reclmmf{'cmp'} -N $reclmmf{'dur'} -M $model{'cmp'} -p {} -R $model{'dur'} $lst{'ful'} $lst{'ful'} -- ";
+         for (my $j = 1; $j <= $nProcHERest; $j++) {
+            $command .= "$j ";
+         }
+         # map:
+         shell($command);
+         # reduce:
+         $acc = `find ${model{'cmp'}}/HER*.acc | sort -rn | tr '\\n' ' '`;
+         shell("$HERest{'fulREDUCE'} -H $reclmmf{'cmp'} -N $reclmmf{'dur'} -M $model{'cmp'} -p 0 -R $model{'dur'} $lst{'ful'} $lst{'ful'} $acc");
+         shell("rm ${scp{'trn'}}.*");   
+      } else {
+         shell("$HERest{'ful'} -H $reclmmf{'cmp'} -N $reclmmf{'dur'} -M $model{'cmp'} -R $model{'dur'} $lst{'ful'} $lst{'ful'}");
+      }
    }
 
    # compress reestimated mmfs
