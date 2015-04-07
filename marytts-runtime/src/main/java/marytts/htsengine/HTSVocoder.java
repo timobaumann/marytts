@@ -1625,7 +1625,7 @@ public class HTSVocoder {
 	}
 
 	protected class HTSVocoderDataProducer extends ProducingDoubleDataSource {
-		private static final double INITIAL_MAX_AMPLITUDE = 17000.;
+		private static final double INITIAL_MAX_AMPLITUDE = 500000.;
 
 		// Values used by the synthesis thread
 		private HTSPStream lf0Pst;
