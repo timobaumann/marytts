@@ -2109,6 +2109,7 @@ public class MaryGenericFeatureProcessors {
 			}
 			if (syntaxCache.containsKey(sentStr.toString()))
 				return syntaxCache.get(sentStr.toString());
+			System.err.println("parsing " + sentStr.toString());
 			String tagged = tw.tag(sentStr.toString());
 			
 			// we need an additional "virtual" feature for VNs and unused 
@@ -2130,6 +2131,9 @@ public class MaryGenericFeatureProcessors {
 			
 			// parse it, cache it, done
 			String result = tw.parse(correctedTagged.toString());
+			if (syntaxCache.size() > 100) {
+				syntaxCache.clear();
+			}
 			syntaxCache.put(sentStr.toString(), result);
 			return result;
 		}
